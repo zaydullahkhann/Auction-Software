@@ -75,9 +75,24 @@ export const CelebrationModal = ({ data, onClose, onSelectNextPlayer }) => {
             Acquired by Franchise
           </div>
 
-          <div className="flex items-center justify-center gap-3">
-            <span className="text-3xl">{team?.badge}</span>
-            <div className="text-left">
+          <div className="flex items-center justify-center gap-3.5">
+            {team?.image ? (
+              <img
+                src={team.image}
+                alt={team?.name}
+                className="w-14 h-14 rounded-2xl object-cover border-2 border-amber-400 shadow-lg flex-shrink-0"
+                onError={(e) => {
+                  e.target.style.display = 'none';
+                  if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex';
+                }}
+              />
+            ) : null}
+            <div
+              className={`w-14 h-14 rounded-2xl bg-pitch-950 border-2 border-amber-400 items-center justify-center text-3xl flex-shrink-0 ${team?.image ? 'hidden' : 'flex'}`}
+            >
+              {team?.badge || '🛡️'}
+            </div>
+            <div className="text-left min-w-0">
               <h3 className="text-xl font-extrabold text-white" style={{ color: team?.accentColor || '#fff' }}>
                 {team?.name}
               </h3>

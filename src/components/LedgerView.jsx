@@ -189,7 +189,7 @@ export const LedgerView = () => {
                 <tr>
                   <th scope="col" className="px-6 py-3.5">#</th>
                   <th scope="col" className="px-6 py-3.5">Player</th>
-                  <th scope="col" className="px-6 py-3.5">Position & OVR</th>
+                  <th scope="col" className="px-6 py-3.5">Position</th>
                   <th scope="col" className="px-6 py-3.5">Winning Team</th>
                   <th scope="col" className="px-6 py-3.5">Points Paid</th>
                   <th scope="col" className="px-6 py-3.5">Status</th>
@@ -223,9 +223,6 @@ export const LedgerView = () => {
 
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-1.5">
-                        <span className="font-extrabold text-amber-400 font-display text-base">
-                          {entry.playerRating}
-                        </span>
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-pitch-950 text-slate-300 border border-pitch-700">
                           {entry.playerPosition}
                         </span>

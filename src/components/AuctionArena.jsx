@@ -105,11 +105,9 @@ export const AuctionArena = ({ onSelectPlayerTab }) => {
                       />
                       <div>
                         <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-bold text-amber-400">{ply.rating} OVR</span>
                           <span className="text-[10px] px-1 bg-pitch-800 rounded text-slate-300 font-bold">{ply.position}</span>
                         </div>
                         <h4 className="text-sm font-bold text-white group-hover:text-emerald-300">{ply.name}</h4>
-                        <span className="text-xs text-slate-400">Base: {ply.basePoints} Pts</span>
                       </div>
                     </div>
                     <button className="px-3 py-1.5 rounded-lg bg-emerald-500 text-pitch-950 font-bold text-xs">
@@ -202,8 +200,13 @@ export const AuctionArena = ({ onSelectPlayerTab }) => {
                       {currentAuction.currentBid} <span className="text-lg font-sans text-amber-400">PTS</span>
                     </div>
                     {highestBidderTeam ? (
-                      <div className="text-xs font-bold text-white truncate px-2 py-1 bg-pitch-800 rounded-lg">
-                        {highestBidderTeam.badge} {highestBidderTeam.name}
+                      <div className="text-xs font-bold text-white truncate px-2 py-1 bg-pitch-800 rounded-lg flex items-center justify-center gap-1.5">
+                        {highestBidderTeam.image ? (
+                          <img src={highestBidderTeam.image} alt={highestBidderTeam.name} className="w-4 h-4 rounded-md object-cover flex-shrink-0" />
+                        ) : (
+                          <span>{highestBidderTeam.badge || '🛡️'}</span>
+                        )}
+                        <span>{highestBidderTeam.name}</span>
                       </div>
                     ) : (
                       <span className="text-xs text-slate-500 italic block py-1">
@@ -290,11 +293,15 @@ export const AuctionArena = ({ onSelectPlayerTab }) => {
                   >
                     {/* Team Info */}
                     <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-2xl">{team.badge}</span>
-                        <div>
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {team.image ? (
+                          <img src={team.image} alt={team.name} className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
+                        ) : (
+                          <span className="text-2xl">{team.badge}</span>
+                        )}
+                        <div className="min-w-0">
                           <h4 className="text-sm font-extrabold text-white truncate max-w-[120px]">{team.name}</h4>
-                          <span className="text-[11px] text-slate-400 block">{team.captain}</span>
+                          <span className="text-[11px] text-slate-400 block truncate">{team.captain}</span>
                         </div>
                       </div>
                       <span className="text-xs font-bold text-slate-300">

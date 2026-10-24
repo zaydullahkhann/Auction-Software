@@ -131,7 +131,6 @@ export const AuctionProvider = ({ children }) => {
       playerId: player.id,
       playerName: player.name,
       playerPosition: player.position,
-      playerRating: player.rating,
       playerPhoto: player.photo,
       teamId: null,
       teamName: 'UNSOLD',
@@ -206,7 +205,6 @@ export const AuctionProvider = ({ children }) => {
       playerId: player.id,
       playerName: player.name,
       playerPosition: player.position,
-      playerRating: player.rating,
       playerPhoto: player.photo,
       teamId: team.id,
       teamName: team.name,
@@ -296,8 +294,8 @@ export const AuctionProvider = ({ children }) => {
 
     setCurrentAuction({
       activePlayerId: playerId,
-      baseBid: player.basePoints,
-      currentBid: player.basePoints,
+      baseBid: 0,
+      currentBid: 0,
       highestBidderTeamId: null,
       isTimerRunning: true, // Auto start countdown
       timeLeft: duration,
@@ -305,7 +303,7 @@ export const AuctionProvider = ({ children }) => {
         {
           id: 'bid-init-' + Date.now(),
           type: 'SYSTEM',
-          text: `Auction started for ${player.name} with Base Bid of ${player.basePoints} Pts`,
+          text: `Auction started for ${player.name}`,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
         }
       ],
@@ -335,8 +333,8 @@ export const AuctionProvider = ({ children }) => {
       newBidAmount = customPoints;
     } else {
       if (!currentAuction.highestBidderTeamId) {
-        // First bid starts at base bid
-        newBidAmount = currentAuction.baseBid;
+        // First bid starts at 1 point
+        newBidAmount = 1;
       } else {
         // Increment by 1 point
         newBidAmount = currentAuction.currentBid + 1;

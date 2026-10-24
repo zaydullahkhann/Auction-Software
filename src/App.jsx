@@ -21,16 +21,79 @@ import {
   Image as ImageIcon,
   AlertTriangle,
   Award,
-  Check
+  Check,
+  Pencil,
+  Save,
+  ArrowRight
 } from 'lucide-react';
 import { INITIAL_TEAMS, INITIAL_PLAYERS } from './data/initialData';
 import confetti from 'canvas-confetti';
 
+// Automatically compress and resize uploaded images before saving to avoid localStorage QuotaExceededError
+const compressImage = (file, maxDim = 400, quality = 0.75) => {
+  return new Promise((resolve) => {
+    if (!file) return resolve('');
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        if (width > height) {
+          if (width > maxDim) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          }
+        } else {
+          if (height > maxDim) {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => resolve(e.target.result || '');
+      img.src = e.target.result;
+    };
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
+};
+
+const safeSetItem = (key, value) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch (err) {
+    console.warn(`LocalStorage quota exceeded for ${key}:`, err);
+  }
+};
+
+// Purge any bloated legacy localStorage keys to free up quota immediately
+try {
+  [
+    'FOOTBALL_AUCTION_TEAMS_SETUP_V12',
+    'FOOTBALL_AUCTION_PLAYERS_SETUP_V12',
+    'FOOTBALL_AUCTION_TEAMS_SETUP_V11',
+    'FOOTBALL_AUCTION_PLAYERS_SETUP_V11',
+    'FOOTBALL_AUCTION_TEAMS_SETUP_V10',
+    'FOOTBALL_AUCTION_PLAYERS_SETUP_V10',
+    'FOOTBALL_AUCTION_TEAMS_V1',
+    'FOOTBALL_AUCTION_PLAYERS_V1',
+  ].forEach(k => localStorage.removeItem(k));
+} catch {
+  // ignore
+}
+
 const STORAGE_KEYS = {
-  TEAMS: 'FOOTBALL_AUCTION_TEAMS_SETUP_V9',
-  PLAYERS: 'FOOTBALL_AUCTION_PLAYERS_SETUP_V9',
-  CURRENT_INDEX: 'FOOTBALL_AUCTION_INDEX_SETUP_V9',
-  VIEW_MODE: 'FOOTBALL_AUCTION_VIEW_MODE_V9',
+  TEAMS: 'FOOTBALL_AUCTION_TEAMS_SETUP_V13',
+  PLAYERS: 'FOOTBALL_AUCTION_PLAYERS_SETUP_V13',
+  CURRENT_INDEX: 'FOOTBALL_AUCTION_INDEX_SETUP_V13',
+  VIEW_MODE: 'FOOTBALL_AUCTION_VIEW_MODE_V13',
 };
 
 export default function App() {
@@ -44,21 +107,36 @@ export default function App() {
     }
   });
 
-  // 2. Teams State
+  // 2. Teams State (Migrates and preserves team image from INITIAL_TEAMS if missing)
   const [teams, setTeams] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.TEAMS);
-      return saved ? JSON.parse(saved) : INITIAL_TEAMS;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return parsed.map(t => {
+          const cleanedPlayers = (t.players || []).map(({ rating, basePoints, ...p }) => p);
+          if (!t.image) {
+            const init = INITIAL_TEAMS.find(it => it.id === t.id);
+            if (init && init.image) return { ...t, image: init.image, players: cleanedPlayers };
+          }
+          return { ...t, players: cleanedPlayers };
+        });
+      }
+      return INITIAL_TEAMS;
     } catch {
       return INITIAL_TEAMS;
     }
   });
 
-  // 3. Players State
+  // 3. Players State (Remove rating/overall and basePoints if present in saved storage)
   const [players, setPlayers] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.PLAYERS);
-      return saved ? JSON.parse(saved) : INITIAL_PLAYERS;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return parsed.map(({ rating, basePoints, ...p }) => p);
+      }
+      return INITIAL_PLAYERS;
     } catch {
       return INITIAL_PLAYERS;
     }
@@ -71,20 +149,24 @@ export default function App() {
   const [setupTab, setSetupTab] = useState('players'); // 'players' | 'teams'
   const [setupWarning, setSetupWarning] = useState('');
   
-  // New Team Form
+  // New Team Form (With team image support, no emoji badge)
   const [newTeam, setNewTeam] = useState({
     name: '',
     captain: '',
-    badge: '⚡',
+    image: '',
     initialPoints: 60,
   });
 
-  // New Player Form with File Upload preview (Base Points defaults to 0)
+  // Edit Team State
+  const [editingTeam, setEditingTeam] = useState(null);
+
+  // Edit Player State
+  const [editingPlayer, setEditingPlayer] = useState(null);
+
+  // New Player Form with File Upload preview
   const [newPlayer, setNewPlayer] = useState({
     name: '',
     position: 'FW',
-    rating: 85,
-    basePoints: 0,
     nationality: 'Tournament Star',
     photo: '',
   });
@@ -99,20 +181,20 @@ export default function App() {
   const availableQueue = players.filter(p => p.status !== 'sold');
   const soldPlayersList = players.filter(p => p.status === 'sold');
 
-  // Sync LocalStorage
+  // Sync LocalStorage Safely without exceeding quota
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.VIEW_MODE, viewMode);
+    safeSetItem(STORAGE_KEYS.VIEW_MODE, viewMode);
   }, [viewMode]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.TEAMS, JSON.stringify(teams));
+    safeSetItem(STORAGE_KEYS.TEAMS, JSON.stringify(teams));
     if (teams.length > 0 && !teams.some(t => t.id === selectedTeamId)) {
       setSelectedTeamId(teams[0].id);
     }
   }, [teams, selectedTeamId]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.PLAYERS, JSON.stringify(players));
+    safeSetItem(STORAGE_KEYS.PLAYERS, JSON.stringify(players));
   }, [players]);
 
   // Ensure current index is within bounds of available queue
@@ -124,27 +206,50 @@ export default function App() {
 
   const currentPlayer = availableQueue[currentIndex] || null;
 
-  // Initialize bid to 0 (or player basePoints)
+  // Initialize bid to 0
   useEffect(() => {
     if (currentPlayer) {
-      setBidPoints(currentPlayer.basePoints !== undefined ? currentPlayer.basePoints : 0);
+      setBidPoints(0);
       setErrorMessage('');
     }
   }, [currentIndex, currentPlayer?.id]);
 
-  // Handle image upload from device
-  const handleImageUpload = (e) => {
+  // Handle player image upload from device (auto-compress to ~20-30KB)
+  const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      if (file.size > 3 * 1024 * 1024) {
-        alert('File size is too large. Please select an image under 3MB.');
-        return;
+      try {
+        const compressed = await compressImage(file, 400, 0.75);
+        setNewPlayer(prev => ({ ...prev, photo: compressed }));
+      } catch (err) {
+        console.error('Failed to compress image:', err);
       }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setNewPlayer(prev => ({ ...prev, photo: reader.result }));
-      };
-      reader.readAsDataURL(file);
+    }
+  };
+
+  // Handle team image upload for new team
+  const handleTeamImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      try {
+        const compressed = await compressImage(file, 400, 0.75);
+        setNewTeam(prev => ({ ...prev, image: compressed }));
+      } catch (err) {
+        console.error('Failed to compress image:', err);
+      }
+    }
+  };
+
+  // Handle team image upload for editing team
+  const handleEditTeamImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (file && editingTeam) {
+      try {
+        const compressed = await compressImage(file, 400, 0.75);
+        setEditingTeam(prev => ({ ...prev, image: compressed }));
+      } catch (err) {
+        console.error('Failed to compress image:', err);
+      }
     }
   };
 
@@ -157,7 +262,7 @@ export default function App() {
       id: 'team-' + Date.now(),
       name: newTeam.name.trim(),
       captain: newTeam.captain.trim(),
-      badge: newTeam.badge || '🛡️',
+      image: newTeam.image || '',
       initialPoints: Number(newTeam.initialPoints) || 60,
       remainingPoints: Number(newTeam.initialPoints) || 60,
       maxPlayers: 7,
@@ -165,8 +270,30 @@ export default function App() {
     };
 
     setTeams(prev => [...prev, teamObj]);
-    setNewTeam({ name: '', captain: '', badge: '⚡', initialPoints: 60 });
+    setNewTeam({ name: '', captain: '', image: '', initialPoints: 60 });
     setSetupWarning('');
+  };
+
+  // Update Existing Team Handler
+  const handleUpdateTeam = (e) => {
+    e.preventDefault();
+    if (!editingTeam || !editingTeam.name.trim() || !editingTeam.captain.trim()) return;
+
+    setTeams(prev => prev.map(t => {
+      if (t.id === editingTeam.id) {
+        const diffInitial = (Number(editingTeam.initialPoints) || 60) - (Number(t.initialPoints) || 60);
+        return {
+          ...t,
+          name: editingTeam.name.trim(),
+          captain: editingTeam.captain.trim(),
+          image: editingTeam.image !== undefined ? editingTeam.image : (t.image || ''),
+          initialPoints: Number(editingTeam.initialPoints) || 60,
+          remainingPoints: Math.max(0, (Number(t.remainingPoints) || 60) + diffInitial),
+        };
+      }
+      return t;
+    }));
+    setEditingTeam(null);
   };
 
   // Delete Individual Team
@@ -182,7 +309,7 @@ export default function App() {
     }
   };
 
-  // Add Player Handler (Base bid starts with 0)
+  // Add Player Handler
   const handleAddPlayer = (e) => {
     e.preventDefault();
     if (!newPlayer.name.trim()) return;
@@ -192,8 +319,6 @@ export default function App() {
       name: newPlayer.name.trim(),
       position: newPlayer.position || 'FW',
       positionName: newPlayer.position === 'FW' ? 'Forward' : newPlayer.position === 'MF' ? 'Midfielder' : newPlayer.position === 'DF' ? 'Defender' : 'Goalkeeper',
-      rating: Number(newPlayer.rating) || 85,
-      basePoints: Number(newPlayer.basePoints) >= 0 ? Number(newPlayer.basePoints) : 0,
       nationality: newPlayer.nationality || 'Tournament Star',
       photo: newPlayer.photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80',
       status: 'available',
@@ -205,12 +330,55 @@ export default function App() {
     setNewPlayer({
       name: '',
       position: 'FW',
-      rating: 85,
-      basePoints: 0,
       nationality: 'Tournament Star',
       photo: '',
     });
     setSetupWarning('');
+  };
+
+  // Handle player image upload when editing a player (auto-compressed to ~20-30KB)
+  const handleEditPlayerImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (file && editingPlayer) {
+      try {
+        const compressed = await compressImage(file, 400, 0.75);
+        setEditingPlayer(prev => ({ ...prev, photo: compressed }));
+      } catch (err) {
+        console.error('Failed to compress image:', err);
+      }
+    }
+  };
+
+  // Update Existing Player Handler
+  const handleUpdatePlayer = (e) => {
+    e.preventDefault();
+    if (!editingPlayer || !editingPlayer.name.trim()) return;
+
+    let posName = 'Forward';
+    if (editingPlayer.position === 'MF') posName = 'Midfielder';
+    if (editingPlayer.position === 'DF') posName = 'Defender';
+    if (editingPlayer.position === 'GK') posName = 'Goalkeeper';
+
+    const updatedData = {
+      ...editingPlayer,
+      name: editingPlayer.name.trim(),
+      position: editingPlayer.position || 'FW',
+      positionName: posName,
+      nationality: editingPlayer.nationality || 'Tournament Star',
+      photo: editingPlayer.photo || '',
+    };
+    delete updatedData.rating;
+    delete updatedData.basePoints;
+
+    setPlayers(prev => prev.map(p => p.id === editingPlayer.id ? updatedData : p));
+
+    // Also update player in any team squad if already purchased
+    setTeams(prevTeams => prevTeams.map(t => ({
+      ...t,
+      players: t.players.map(p => p.id === editingPlayer.id ? { ...p, ...updatedData } : p)
+    })));
+
+    setEditingPlayer(null);
   };
 
   // Delete Individual Player
@@ -389,7 +557,7 @@ export default function App() {
 
   // Reset to initial demo data
   const handleReset = () => {
-    if (window.confirm('Reset all teams and players back to default roster template with 0 base points?')) {
+    if (window.confirm('Reset all teams and players back to default roster template?')) {
       localStorage.removeItem(STORAGE_KEYS.TEAMS);
       localStorage.removeItem(STORAGE_KEYS.PLAYERS);
       localStorage.removeItem(STORAGE_KEYS.CURRENT_INDEX);
@@ -506,7 +674,7 @@ export default function App() {
                 Tournament Teams & Players Setup
               </h2>
               <p className="text-xs text-slate-400 mt-1">
-                Base bid starts with <strong>0 Points</strong>. Sold players are automatically removed from the active draft list.
+                Sold players are automatically removed from the active draft queue.
               </p>
             </div>
 
@@ -639,32 +807,6 @@ export default function App() {
                     </div>
 
                     <div>
-                      <label className="text-xs font-bold text-slate-300 block mb-1">Rating (OVR)</label>
-                      <input
-                        type="number"
-                        min="50"
-                        max="99"
-                        value={newPlayer.rating}
-                        onChange={(e) => setNewPlayer({ ...newPlayer, rating: e.target.value })}
-                        className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-amber-400 font-bold text-sm text-center focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs font-bold text-slate-300 block mb-1">Base Bid (Points)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="50"
-                        value={newPlayer.basePoints}
-                        onChange={(e) => setNewPlayer({ ...newPlayer, basePoints: e.target.value })}
-                        className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-emerald-400 font-bold text-sm text-center focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-
-                    <div>
                       <label className="text-xs font-bold text-slate-300 block mb-1">Info / Role</label>
                       <input
                         type="text"
@@ -728,24 +870,32 @@ export default function App() {
                           />
                           <div className="min-w-0">
                             <div className="flex items-center gap-1">
-                              <span className="text-xs font-black text-amber-400">{ply.rating}</span>
-                              <span className="px-1 bg-slate-800 rounded text-[9px] font-bold text-slate-300">{ply.position}</span>
+                              <span className="px-1.5 py-0.5 bg-slate-800 rounded text-[10px] font-bold text-slate-300">{ply.position}</span>
                               {ply.status === 'sold' && (
                                 <span className="px-1 bg-emerald-500/20 text-emerald-300 rounded text-[9px] font-bold">SOLD</span>
                               )}
                             </div>
                             <h4 className="text-xs font-bold text-white truncate">{ply.name}</h4>
-                            <span className="text-[11px] text-slate-400 font-semibold">Base: {ply.basePoints || 0} Pts</span>
+                            <span className="text-[11px] text-slate-400 font-medium truncate block">{ply.nationality || 'Tournament Star'}</span>
                           </div>
                         </div>
 
-                        <button
-                          onClick={() => handleDeletePlayer(ply.id)}
-                          className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-red-400 hover:bg-red-500/20 transition-all flex-shrink-0"
-                          title="Delete Player"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button
+                            onClick={() => setEditingPlayer({ ...ply })}
+                            className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/20 transition-all"
+                            title="Edit Player & Upload Photo"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeletePlayer(ply.id)}
+                            className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-red-400 hover:bg-red-500/20 transition-all"
+                            title="Delete Player"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -766,6 +916,50 @@ export default function App() {
                 </h3>
 
                 <form onSubmit={handleAddTeam} className="space-y-3">
+                  {/* Team Logo / Image Upload from Device */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-300 block mb-1">
+                      Team Image / Logo (Upload from Device)
+                    </label>
+                    <div className="flex items-center gap-3 p-3 bg-slate-950 rounded-2xl border border-slate-700">
+                      <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-900 border border-slate-700 flex items-center justify-center flex-shrink-0">
+                        {newTeam.image ? (
+                          <img src={newTeam.image} alt="Preview" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="flex flex-col items-center justify-center text-slate-500">
+                            <ImageIcon className="w-6 h-6" />
+                            <span className="text-[10px] mt-0.5">No Logo</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex-1 space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30 text-xs font-bold cursor-pointer transition-all">
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>Choose Logo</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleTeamImageUpload}
+                              className="hidden"
+                            />
+                          </label>
+                          {newTeam.image && (
+                            <button
+                              type="button"
+                              onClick={() => setNewTeam(prev => ({ ...prev, image: '' }))}
+                              className="px-2 py-1 rounded-xl bg-slate-800 hover:bg-red-500/20 hover:text-red-400 text-slate-400 text-[11px] font-bold transition-all"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-400">Select team logo from phone / PC</p>
+                      </div>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="text-xs font-bold text-slate-300 block mb-1">Team Name *</label>
                     <input
@@ -790,29 +984,16 @@ export default function App() {
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs font-bold text-slate-300 block mb-1">Badge Icon</label>
-                      <input
-                        type="text"
-                        placeholder="⚡"
-                        value={newTeam.badge}
-                        onChange={(e) => setNewTeam({ ...newTeam, badge: e.target.value })}
-                        className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-center text-lg focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-bold text-slate-300 block mb-1">Starting Points</label>
-                      <input
-                        type="number"
-                        min="10"
-                        max="200"
-                        value={newTeam.initialPoints}
-                        onChange={(e) => setNewTeam({ ...newTeam, initialPoints: e.target.value })}
-                        className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-amber-400 font-bold text-sm focus:outline-none focus:border-emerald-500 text-center"
-                      />
-                    </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-300 block mb-1">Starting Points</label>
+                    <input
+                      type="number"
+                      min="10"
+                      max="200"
+                      value={newTeam.initialPoints}
+                      onChange={(e) => setNewTeam({ ...newTeam, initialPoints: e.target.value })}
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-amber-400 font-bold text-sm focus:outline-none focus:border-emerald-500"
+                    />
                   </div>
 
                   <button
@@ -849,24 +1030,48 @@ export default function App() {
                     {teams.map((team) => (
                       <div
                         key={team.id}
-                        className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-3 shadow-md"
+                        className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-3 shadow-md hover:border-slate-700 transition-all"
                       >
-                        <div className="flex items-center gap-3">
-                          <span className="text-3xl">{team.badge}</span>
-                          <div>
-                            <h4 className="text-base font-black text-white">{team.name}</h4>
-                            <p className="text-xs text-slate-400">Captain: <strong className="text-amber-400">{team.captain}</strong></p>
+                        <div className="flex items-center gap-3 min-w-0">
+                          {team.image ? (
+                            <img
+                              src={team.image}
+                              alt={team.name}
+                              className="w-12 h-12 rounded-2xl object-cover border-2 border-slate-700 flex-shrink-0 shadow-sm"
+                              onError={(e) => {
+                                e.target.style.display = 'none';
+                                if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex';
+                              }}
+                            />
+                          ) : null}
+                          <div
+                            className={`w-12 h-12 rounded-2xl bg-slate-800 border-2 border-slate-700 items-center justify-center flex-shrink-0 ${team.image ? 'hidden' : 'flex'}`}
+                          >
+                            <Shield className="w-6 h-6 text-emerald-400" />
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="text-base font-black text-white truncate">{team.name}</h4>
+                            <p className="text-xs text-slate-400 truncate">Captain: <strong className="text-amber-400">{team.captain}</strong></p>
                             <span className="text-xs text-emerald-400 font-bold">Budget: {team.remainingPoints} Pts</span>
                           </div>
                         </div>
 
-                        <button
-                          onClick={() => handleDeleteTeam(team.id)}
-                          className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-red-400 hover:bg-red-500/20 transition-all"
-                          title="Delete Team"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <button
+                            onClick={() => setEditingTeam({ ...team })}
+                            className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/20 transition-all"
+                            title="Edit Team & Upload Logo"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteTeam(team.id)}
+                            className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-red-400 hover:bg-red-500/20 transition-all"
+                            title="Delete Team"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -936,10 +1141,6 @@ export default function App() {
                   {/* Player Details */}
                   <div className="text-center space-y-3">
                     <div className="flex items-center justify-between px-2">
-                      <span className="px-3 py-1 rounded-xl bg-amber-500/20 text-amber-400 font-black text-sm border border-amber-500/30">
-                        {currentPlayer.rating} OVR
-                      </span>
-
                       <span className={`px-3 py-1 rounded-xl text-xs font-extrabold uppercase border ${getPositionBadge(currentPlayer.position)}`}>
                         {currentPlayer.position} • {currentPlayer.positionName || currentPlayer.position}
                       </span>
@@ -956,7 +1157,7 @@ export default function App() {
                     </div>
 
                     {/* Photo */}
-                    <div className="w-32 h-32 mx-auto rounded-2xl overflow-hidden border-2 border-slate-700 shadow-md bg-slate-800">
+                    <div className="relative w-32 h-32 mx-auto rounded-2xl overflow-hidden border-2 border-slate-700 shadow-md bg-slate-800">
                       <img
                         src={currentPlayer.photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80'}
                         alt={currentPlayer.name}
@@ -969,7 +1170,7 @@ export default function App() {
 
                     <div>
                       <h2 className="text-2xl font-black text-white">{currentPlayer.name}</h2>
-                      <p className="text-xs text-slate-400">{currentPlayer.nationality || 'Tournament Star'} • Base Bid: <strong>{currentPlayer.basePoints || 0} Pts</strong></p>
+                      <p className="text-xs text-slate-400 mt-1">{currentPlayer.nationality || 'Tournament Star'}</p>
                     </div>
                   </div>
 
@@ -1023,10 +1224,42 @@ export default function App() {
                       >
                         {teams.map(t => (
                           <option key={t.id} value={t.id} disabled={t.players.length >= 7}>
-                            {t.badge} {t.name} (Cap: {t.captain}) — Budget: {t.remainingPoints} Pts | Squad: {t.players.length}/7 {t.players.length >= 7 ? '- FULL' : ''}
+                            {t.name} (Cap: {t.captain}) — Budget: {t.remainingPoints} Pts | Squad: {t.players.length}/7 {t.players.length >= 7 ? '- FULL' : ''}
                           </option>
                         ))}
                       </select>
+
+                      {/* Selected Team Visual Preview with Large Logo & Edit Option */}
+                      {(() => {
+                        const selTeam = teams.find(t => t.id === selectedTeamId);
+                        if (!selTeam) return null;
+                        return (
+                          <div className="mt-2.5 p-3 rounded-2xl bg-slate-950 border border-slate-700 flex items-center gap-3.5 shadow-inner">
+                            {selTeam.image ? (
+                              <img
+                                src={selTeam.image}
+                                alt={selTeam.name}
+                                className="w-14 h-14 rounded-2xl object-cover border-2 border-slate-700 flex-shrink-0 shadow-md"
+                                onError={(e) => {
+                                  e.target.style.display = 'none';
+                                  if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex';
+                                }}
+                              />
+                            ) : null}
+                            <div className={`w-14 h-14 rounded-2xl bg-slate-800 border-2 border-slate-700 items-center justify-center flex-shrink-0 ${selTeam.image ? 'hidden' : 'flex'}`}>
+                              <Shield className="w-7 h-7 text-emerald-400" />
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-sm font-black text-white truncate">{selTeam.name}</h4>
+                              <p className="text-xs text-slate-400 truncate mt-0.5">
+                                Captain: <strong className="text-amber-400">{selTeam.captain}</strong> • Squad: <strong className="text-white">{selTeam.players.length}/7</strong>
+                              </p>
+                              <span className="text-xs font-black text-emerald-400 block mt-0.5">{selTeam.remainingPoints} Pts Left</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* 3. Action Buttons */}
@@ -1131,17 +1364,28 @@ export default function App() {
                             <div className="min-w-0">
                               <span className="font-extrabold text-white truncate block">{ply.name}</span>
                               <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
-                                <span className="text-amber-400 font-bold">{ply.rating} OVR</span>
-                                <span>•</span>
-                                <span>{ply.position}</span>
+                                <span className="text-slate-300 font-semibold">{ply.positionName || ply.position}</span>
                               </div>
                             </div>
                           </div>
 
                           <div className="flex items-center gap-2 flex-shrink-0">
                             {winningTeam && (
-                              <span className="px-2.5 py-1 rounded-xl bg-slate-900 text-[11px] font-bold text-slate-200 border border-slate-700 flex items-center gap-1.5 shadow-sm">
-                                <span className="text-sm">{winningTeam.badge}</span>
+                              <span className="px-2.5 py-1 rounded-xl bg-slate-900 text-[11px] font-bold text-slate-200 border border-slate-700 flex items-center gap-2 shadow-sm">
+                                {winningTeam.image ? (
+                                  <img
+                                    src={winningTeam.image}
+                                    alt={winningTeam.name}
+                                    className="w-4 h-4 rounded-md object-cover border border-slate-700 flex-shrink-0"
+                                    onError={(e) => {
+                                      e.target.style.display = 'none';
+                                      if (e.target.nextSibling) e.target.nextSibling.style.display = 'inline-flex';
+                                    }}
+                                  />
+                                ) : null}
+                                <span className={`items-center ${winningTeam.image ? 'hidden' : 'inline-flex'}`}>
+                                  <Shield className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                                </span>
                                 <span className="truncate max-w-[90px]">{winningTeam.name}</span>
                               </span>
                             )}
@@ -1184,7 +1428,7 @@ export default function App() {
                     <div
                       key={team.id}
                       onClick={() => setSelectedTeamId(team.id)}
-                      className={`p-3.5 rounded-2xl border-2 transition-all cursor-pointer ${
+                      className={`p-4 rounded-2xl border-2 transition-all cursor-pointer ${
                         isSelected
                           ? 'bg-slate-900 border-emerald-500 shadow-lg shadow-emerald-500/10 ring-1 ring-emerald-500'
                           : isSquadFull
@@ -1192,25 +1436,41 @@ export default function App() {
                           : 'bg-slate-900 border-slate-800 hover:border-slate-700'
                       }`}
                     >
-                      {/* Team Top Info */}
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-2xl">{team.badge}</span>
-                          <div>
-                            <h4 className="text-sm font-black text-white leading-tight">{team.name}</h4>
-                            <span className="text-xs text-amber-400 font-bold">Cap: {team.captain}</span>
+                      {/* Team Top Info - Large Team Logo */}
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div className="flex items-center gap-3.5 min-w-0">
+                          {team.image ? (
+                            <img
+                              src={team.image}
+                              alt={team.name}
+                              className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-cover border-2 border-slate-700 flex-shrink-0 shadow-lg"
+                              onError={(e) => {
+                                e.target.style.display = 'none';
+                                if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex';
+                              }}
+                            />
+                          ) : null}
+                          <div
+                            className={`w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-slate-800 border-2 border-slate-700 items-center justify-center flex-shrink-0 ${team.image ? 'hidden' : 'flex'}`}
+                          >
+                            <Shield className="w-8 h-8 sm:w-10 sm:h-10 text-emerald-400" />
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="text-base sm:text-lg font-black text-white leading-tight truncate">{team.name}</h4>
+                            <span className="text-xs sm:text-sm text-amber-400 font-bold block truncate">Captain: {team.captain}</span>
+                            <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Budget: {team.remainingPoints} Pts</span>
                           </div>
                         </div>
 
-                        <span className={`px-2 py-0.5 rounded-lg text-xs font-black ${
-                          isSquadFull ? 'bg-red-500/20 text-red-300' : 'bg-slate-800 text-slate-200'
+                        <span className={`px-2.5 py-1 rounded-xl text-xs font-black flex-shrink-0 ${
+                          isSquadFull ? 'bg-red-500/20 text-red-300 border border-red-500/30' : 'bg-slate-800 text-slate-200 border border-slate-700'
                         }`}>
                           {team.players.length} / 7
                         </span>
                       </div>
 
                       {/* Budget Bar */}
-                      <div className="space-y-1 mb-2">
+                      <div className="space-y-1 mb-3">
                         <div className="flex items-center justify-between text-xs">
                           <span className="text-slate-400">Remaining Budget:</span>
                           <strong className="text-emerald-400 font-black">{team.remainingPoints} Pts</strong>
@@ -1223,23 +1483,59 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* Purchased Players */}
-                      <div className="pt-2 border-t border-slate-800/80">
-                        <span className="text-[10px] text-slate-500 uppercase font-bold block mb-1">
-                          Bought ({team.players.length}):
-                        </span>
+                      {/* Purchased Players with Photos */}
+                      <div className="pt-2.5 border-t border-slate-800/80">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] text-slate-400 uppercase font-black tracking-wider flex items-center gap-1.5">
+                            <Users className="w-3.5 h-3.5 text-emerald-400" />
+                            Drafted Squad ({team.players.length}/7):
+                          </span>
+                          <span className="text-[11px] text-amber-400 font-bold">
+                            Spent: {(team.initialPoints || 60) - team.remainingPoints} Pts
+                          </span>
+                        </div>
+
                         {team.players.length === 0 ? (
-                          <span className="text-xs text-slate-600 italic">No players yet</span>
+                          <div className="p-3 rounded-xl bg-slate-950/60 border border-dashed border-slate-800 text-center">
+                            <span className="text-xs text-slate-500 italic">No players drafted yet</span>
+                          </div>
                         ) : (
-                          <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1">
                             {team.players.map((ply, i) => (
-                              <span
-                                key={i}
-                                className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-[11px] text-slate-300 flex items-center gap-1 font-medium"
+                              <div
+                                key={ply.id || i}
+                                className="flex items-center gap-2 p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 transition-all shadow-sm"
                               >
-                                <span className="text-amber-400 font-bold">{ply.pointsPaid}p</span>
-                                <span className="truncate max-w-[90px]">{ply.name}</span>
-                              </span>
+                                <img
+                                  src={ply.photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80'}
+                                  alt={ply.name}
+                                  className="w-9 h-9 rounded-lg object-cover border border-slate-700 flex-shrink-0"
+                                  onError={(e) => {
+                                    e.target.src = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80';
+                                  }}
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span className="text-xs font-bold text-white truncate" title={ply.name}>
+                                      {ply.name}
+                                    </span>
+                                    <span className="text-[10px] font-black text-amber-300 bg-amber-500/20 px-1.5 py-0.5 rounded border border-amber-500/30 flex-shrink-0">
+                                      {ply.pointsPaid ?? ply.soldPrice ?? 0}p
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5">
+                                    <span className={`px-1 rounded font-black text-[9px] uppercase ${
+                                      ply.position === 'FW' ? 'text-red-400 bg-red-950/60' :
+                                      ply.position === 'MF' ? 'text-blue-400 bg-blue-950/60' :
+                                      ply.position === 'DF' ? 'text-emerald-400 bg-emerald-950/60' :
+                                      'text-amber-400 bg-amber-950/60'
+                                    }`}>
+                                      {ply.position}
+                                    </span>
+                                    <span>{ply.positionName || ply.position}</span>
+                                  </div>
+                                </div>
+                              </div>
                             ))}
                           </div>
                         )}
@@ -1258,13 +1554,13 @@ export default function App() {
       {/* ============================================================ */}
       {soldCelebration && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fade-in">
-          <div className="relative w-full max-w-md rounded-3xl bg-gradient-to-b from-slate-900 to-slate-950 border-2 border-amber-400 p-6 text-center shadow-2xl overflow-hidden ring-4 ring-amber-400/20">
+          <div className="relative w-full max-w-2xl rounded-3xl bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 border-2 border-amber-400 p-5 sm:p-7 text-center shadow-2xl ring-4 ring-amber-400/20 max-h-[95vh] overflow-y-auto">
             
-            <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-64 h-64 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-72 h-72 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
 
             <button
               onClick={() => setSoldCelebration(null)}
-              className="absolute top-4 right-4 p-1.5 rounded-full bg-slate-800 text-slate-400 hover:text-white"
+              className="absolute top-4 right-4 p-1.5 rounded-full bg-slate-800 text-slate-400 hover:text-white transition-all"
             >
               <X className="w-4 h-4" />
             </button>
@@ -1274,53 +1570,104 @@ export default function App() {
               DEAL SEALED!
             </div>
 
-            <h2 className="text-3xl font-black text-white uppercase tracking-wide">
+            <h2 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-wide mb-4">
               HAMMER DOWN — <span className="text-amber-400">SOLD!</span>
             </h2>
 
-            {/* Player Snapshot */}
-            <div className="my-4 p-3 rounded-2xl bg-slate-900 border border-slate-800 flex items-center gap-3 text-left">
-              <img
-                src={soldCelebration.player.photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80'}
-                alt={soldCelebration.player.name}
-                className="w-16 h-16 rounded-xl object-cover border-2 border-amber-400"
-                onError={(e) => {
-                  e.target.src = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80';
-                }}
-              />
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-black text-amber-400">{soldCelebration.player.rating} OVR</span>
-                  <span className="text-[10px] px-1 bg-slate-800 rounded text-slate-300 font-bold">{soldCelebration.player.position}</span>
-                </div>
-                <h3 className="text-lg font-black text-white leading-tight">{soldCelebration.player.name}</h3>
-                <span className="text-xs text-slate-400">{soldCelebration.player.nationality || 'Tournament Star'}</span>
-              </div>
-            </div>
-
-            {/* Winning Team Announcement Box */}
-            <div className="p-4 rounded-2xl bg-slate-950 border border-amber-500/40 space-y-2 mb-5">
-              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                Acquired by Franchise:
+            {/* SHOWDOWN CARD: Player on Left -> Right Arrow -> Team on Right */}
+            <div className="p-4 sm:p-6 rounded-3xl bg-slate-950/90 border-2 border-amber-500/40 space-y-4 mb-4 shadow-inner">
+              <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest block text-center">
+                Official Player Transfer
               </span>
-              <div className="flex items-center justify-center gap-3">
-                <span className="text-3xl">{soldCelebration.team.badge}</span>
-                <div className="text-left">
-                  <h4 className="text-xl font-black text-white">{soldCelebration.team.name}</h4>
-                  <span className="text-xs text-amber-400 font-bold">Captain: {soldCelebration.team.captain}</span>
+
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-6">
+                
+                {/* LEFT: Player Sold with Big Image */}
+                <div className="flex-1 w-full flex flex-col items-center text-center">
+                  <span className="text-[10px] font-black text-emerald-400 uppercase tracking-wider mb-2">
+                    Drafted Player
+                  </span>
+                  <img
+                    src={soldCelebration.player.photo || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80'}
+                    alt={soldCelebration.player.name}
+                    className="w-36 h-36 sm:w-44 sm:h-44 rounded-3xl object-cover border-4 border-emerald-400 shadow-xl shadow-emerald-500/20 flex-shrink-0"
+                    onError={(e) => {
+                      e.target.src = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80';
+                    }}
+                  />
+                  <div className="mt-3 space-y-1">
+                    <h3 className="text-xl sm:text-2xl font-black text-white leading-tight">
+                      {soldCelebration.player.name}
+                    </h3>
+                    <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                      <span className={`px-2.5 py-0.5 rounded-lg text-xs font-black uppercase border ${
+                        soldCelebration.player.position === 'FW' ? 'bg-red-500/20 text-red-300 border-red-500/30' :
+                        soldCelebration.player.position === 'MF' ? 'bg-blue-500/20 text-blue-300 border-blue-500/30' :
+                        soldCelebration.player.position === 'DF' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' :
+                        'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                      }`}>
+                        {soldCelebration.player.position} • {soldCelebration.player.positionName || soldCelebration.player.position}
+                      </span>
+                    </div>
+                  </div>
                 </div>
+
+                {/* MIDDLE: Right Arrow */}
+                <div className="flex flex-col items-center justify-center flex-shrink-0 my-1 sm:my-0">
+                  <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-r from-emerald-500/20 to-amber-500/20 border-2 border-amber-400 flex items-center justify-center shadow-lg shadow-amber-500/10">
+                    <ArrowRight className="w-6 h-6 sm:w-7 sm:h-7 text-amber-400 animate-pulse" />
+                  </div>
+                  <span className="text-[10px] font-black text-amber-400/90 uppercase tracking-widest mt-1.5">
+                    SOLD TO
+                  </span>
+                </div>
+
+                {/* RIGHT: Winning Team with Same Big Image */}
+                <div className="flex-1 w-full flex flex-col items-center text-center">
+                  <span className="text-[10px] font-black text-amber-400 uppercase tracking-wider mb-2">
+                    Winning Franchise
+                  </span>
+                  {soldCelebration.team.image ? (
+                    <img
+                      src={soldCelebration.team.image}
+                      alt={soldCelebration.team.name}
+                      className="w-36 h-36 sm:w-44 sm:h-44 rounded-3xl object-cover border-4 border-amber-400 shadow-xl shadow-amber-500/20 flex-shrink-0"
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                        if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex';
+                      }}
+                    />
+                  ) : null}
+                  <div
+                    className={`w-36 h-36 sm:w-44 sm:h-44 rounded-3xl bg-slate-800 border-4 border-amber-400 items-center justify-center shadow-xl shadow-amber-500/20 flex-shrink-0 ${soldCelebration.team.image ? 'hidden' : 'flex'}`}
+                  >
+                    <Shield className="w-16 h-16 sm:w-20 sm:h-20 text-amber-400" />
+                  </div>
+
+                  <div className="mt-3 space-y-1">
+                    <h3 className="text-xl sm:text-2xl font-black text-white leading-tight">
+                      {soldCelebration.team.name}
+                    </h3>
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 font-extrabold text-xs">
+                      <span>Captain: {soldCelebration.team.captain}</span>
+                    </div>
+                  </div>
+                </div>
+
               </div>
 
-              <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-xs px-2">
-                <span className="text-slate-400 font-bold">Winning Price:</span>
-                <span className="px-3 py-1 rounded-lg bg-amber-500/20 text-amber-300 font-black text-base border border-amber-500/30">
-                  {soldCelebration.price} PTS
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between text-[11px] text-slate-400 px-2">
-                <span>Remaining Budget:</span>
-                <strong className="text-emerald-400">{soldCelebration.team.remainingPoints} Pts</strong>
+              {/* Price & Budget Summary */}
+              <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs px-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400 font-bold uppercase tracking-wider">Winning Price:</span>
+                  <span className="px-3 py-1 rounded-xl bg-amber-500/20 text-amber-300 font-black text-base border border-amber-500/30">
+                    {soldCelebration.price} PTS
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 text-xs mr-1">Remaining Budget:</span>
+                  <strong className="text-emerald-400 font-black text-sm">{soldCelebration.team.remainingPoints} Pts</strong>
+                </div>
               </div>
             </div>
 
@@ -1332,6 +1679,271 @@ export default function App() {
               <span>Continue to Next Player</span>
               <ChevronRight className="w-4 h-4" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* 4. EDIT TEAM & LOGO MODAL */}
+      {/* ============================================================ */}
+      {editingTeam && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fade-in">
+          <div className="relative w-full max-w-md rounded-3xl bg-slate-900 border border-slate-700 p-6 shadow-2xl">
+            <button
+              onClick={() => setEditingTeam(null)}
+              className="absolute top-4 right-4 p-1.5 rounded-full bg-slate-800 text-slate-400 hover:text-white"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                <Pencil className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-white">Edit Team & Logo</h3>
+                <p className="text-xs text-slate-400">Customize team photo, name, and captain details.</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleUpdateTeam} className="space-y-4">
+              {/* Team Logo / Image Upload */}
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1">
+                  Team Logo / Photo (Upload from Device)
+                </label>
+                <div className="flex items-center gap-3 p-3 bg-slate-950 rounded-2xl border border-slate-700">
+                  <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-900 border border-slate-700 flex items-center justify-center flex-shrink-0">
+                    {editingTeam.image ? (
+                      <img
+                        src={editingTeam.image}
+                        alt="Preview"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center text-slate-500">
+                        <ImageIcon className="w-6 h-6" />
+                        <span className="text-[10px] mt-0.5">No Logo</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex-1 space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30 text-xs font-bold cursor-pointer transition-all">
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>Change Logo</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleEditTeamImageUpload}
+                          className="hidden"
+                        />
+                      </label>
+                      {editingTeam.image && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingTeam(prev => ({ ...prev, image: '' }))}
+                          className="px-2 py-1 rounded-xl bg-slate-800 hover:bg-red-500/20 hover:text-red-400 text-slate-400 text-[11px] font-bold transition-all"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400">Select new image from phone or PC</p>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1">Team Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={editingTeam.name}
+                  onChange={(e) => setEditingTeam({ ...editingTeam, name: e.target.value })}
+                  className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1">Captain Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={editingTeam.captain}
+                  onChange={(e) => setEditingTeam({ ...editingTeam, captain: e.target.value })}
+                  className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1">Starting Points (Budget)</label>
+                <input
+                  type="number"
+                  min="10"
+                  max="200"
+                  value={editingTeam.initialPoints}
+                  onChange={(e) => setEditingTeam({ ...editingTeam, initialPoints: e.target.value })}
+                  className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-amber-400 font-bold text-sm focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingTeam(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black uppercase tracking-wider shadow flex items-center gap-1.5"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* 5. EDIT PLAYER & PHOTO MODAL */}
+      {/* ============================================================ */}
+      {editingPlayer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fade-in">
+          <div className="relative w-full max-w-lg rounded-3xl bg-slate-900 border border-slate-700 p-6 shadow-2xl max-h-[92vh] overflow-y-auto">
+            <button
+              onClick={() => setEditingPlayer(null)}
+              className="absolute top-4 right-4 p-1.5 rounded-full bg-slate-800 text-slate-400 hover:text-white"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                <Pencil className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-white">Edit Player & Photo</h3>
+                <p className="text-xs text-slate-400">Upload player photo, change position, or details.</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleUpdatePlayer} className="space-y-4">
+              {/* Photo Upload Section */}
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1">
+                  Player Photo (Upload from Device)
+                </label>
+                <div className="flex items-center gap-4 p-3 bg-slate-950 rounded-2xl border border-slate-700">
+                  <div className="w-20 h-20 rounded-2xl overflow-hidden bg-slate-900 border border-slate-700 flex items-center justify-center flex-shrink-0">
+                    {editingPlayer.photo ? (
+                      <img
+                        src={editingPlayer.photo}
+                        alt="Player Preview"
+                        className="w-full h-full object-cover object-top"
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center text-slate-500">
+                        <ImageIcon className="w-7 h-7" />
+                        <span className="text-[10px] mt-0.5">No Photo</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex-1 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <label className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/30 text-xs font-bold cursor-pointer transition-all shadow-sm">
+                        <Upload className="w-4 h-4" />
+                        <span>Upload Photo</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleEditPlayerImageUpload}
+                          className="hidden"
+                        />
+                      </label>
+                      {editingPlayer.photo && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingPlayer(prev => ({ ...prev, photo: '' }))}
+                          className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-red-500/20 hover:text-red-400 text-slate-400 text-xs font-bold transition-all"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400">Upload camera picture or gallery image (under 3MB)</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Player Name */}
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1">Player Full Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={editingPlayer.name}
+                  onChange={(e) => setEditingPlayer({ ...editingPlayer, name: e.target.value })}
+                  className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              {/* Position */}
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1">Position / Role</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {['FW', 'MF', 'DF', 'GK'].map(pos => (
+                    <button
+                      type="button"
+                      key={pos}
+                      onClick={() => setEditingPlayer({ ...editingPlayer, position: pos })}
+                      className={`py-2 rounded-xl text-xs font-black transition-all ${
+                        editingPlayer.position === pos
+                          ? 'bg-emerald-500 text-slate-950 shadow-md font-extrabold ring-2 ring-emerald-400'
+                          : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {pos}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tag / Note */}
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1">Tag / Note</label>
+                <input
+                  type="text"
+                  value={editingPlayer.nationality || ''}
+                  onChange={(e) => setEditingPlayer({ ...editingPlayer, nationality: e.target.value })}
+                  placeholder="e.g. Tournament Star"
+                  className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingPlayer(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 text-xs font-black uppercase tracking-wider shadow flex items-center gap-1.5"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  Save Player
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Shield } from 'lucide-react';
+import { X, Save, Shield, Upload, Image as ImageIcon } from 'lucide-react';
 import { useAuction } from '../context/AuctionContext';
 
 export const TeamModal = ({ isOpen, onClose, team = null }) => {
@@ -9,6 +9,7 @@ export const TeamModal = ({ isOpen, onClose, team = null }) => {
     name: '',
     captain: '',
     badge: '⚡',
+    image: '',
     color: '#06b6d4',
     accentColor: '#67e8f9',
   });
@@ -19,6 +20,7 @@ export const TeamModal = ({ isOpen, onClose, team = null }) => {
         name: team.name || '',
         captain: team.captain || '',
         badge: team.badge || '🛡️',
+        image: team.image || '',
         color: team.color || '#06b6d4',
         accentColor: team.accentColor || '#67e8f9',
       });
@@ -26,6 +28,21 @@ export const TeamModal = ({ isOpen, onClose, team = null }) => {
   }, [team, isOpen]);
 
   if (!isOpen || !team) return null;
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (file.size > 3 * 1024 * 1024) {
+        alert('File size is too large. Please select an image under 3MB.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData(prev => ({ ...prev, image: reader.result }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -51,9 +68,13 @@ export const TeamModal = ({ isOpen, onClose, team = null }) => {
 
         {/* Header */}
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-violet-500 to-cyan-500 p-[2px]">
-            <div className="w-full h-full bg-pitch-900 rounded-[10px] flex items-center justify-center text-xl">
-              {formData.badge}
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-violet-500 to-cyan-500 p-[2px] overflow-hidden flex-shrink-0">
+            <div className="w-full h-full bg-pitch-900 rounded-[10px] flex items-center justify-center overflow-hidden">
+              {formData.image ? (
+                <img src={formData.image} alt={formData.name} className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-xl">{formData.badge}</span>
+              )}
             </div>
           </div>
           <div>
@@ -61,13 +82,51 @@ export const TeamModal = ({ isOpen, onClose, team = null }) => {
               Edit Franchise Details
             </h2>
             <p className="text-xs text-slate-400">
-              Customize team identity, captain name, and team colors.
+              Customize team logo, captain name, and team colors.
             </p>
           </div>
         </div>
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Team Logo / Image Upload */}
+          <div>
+            <label className="text-xs font-bold text-slate-300 block mb-1">Team Logo / Image (Upload)</label>
+            <div className="flex items-center gap-3 p-3 bg-pitch-900 rounded-2xl border border-pitch-700">
+              <div className="w-14 h-14 rounded-xl overflow-hidden bg-pitch-950 border border-pitch-700 flex items-center justify-center flex-shrink-0">
+                {formData.image ? (
+                  <img src={formData.image} alt="Logo" className="w-full h-full object-cover" />
+                ) : (
+                  <ImageIcon className="w-6 h-6 text-slate-500" />
+                )}
+              </div>
+              <div className="flex-1 space-y-1">
+                <div className="flex items-center gap-2">
+                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-500/20 border border-violet-500/40 text-violet-300 hover:bg-violet-500/30 text-xs font-bold cursor-pointer transition-all">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Choose File</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  {formData.image && (
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, image: '' }))}
+                      className="px-2 py-1 rounded-xl bg-pitch-800 hover:bg-rose-500/20 hover:text-rose-400 text-slate-400 text-[11px] font-bold transition-all"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-400">Select team logo from device</p>
+              </div>
+            </div>
+          </div>
+
           <div>
             <label className="text-xs font-bold text-slate-300 block mb-1">Franchise Name</label>
             <input

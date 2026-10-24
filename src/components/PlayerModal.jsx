@@ -9,8 +9,6 @@ export const PlayerModal = ({ isOpen, onClose, initialData = null }) => {
     name: '',
     position: 'FW',
     positionName: 'Forward',
-    rating: 85,
-    basePoints: 5,
     nationality: 'Spain',
     photo: 'https://images.unsplash.com/photo-1508341591423-4347099e1f19?w=400&auto=format&fit=crop&q=80',
     preferredFoot: 'Right',
@@ -31,8 +29,6 @@ export const PlayerModal = ({ isOpen, onClose, initialData = null }) => {
         name: initialData.name || '',
         position: initialData.position || 'FW',
         positionName: initialData.positionName || 'Forward',
-        rating: initialData.rating || 85,
-        basePoints: initialData.basePoints || 5,
         nationality: initialData.nationality || 'Spain',
         photo: initialData.photo || 'https://images.unsplash.com/photo-1508341591423-4347099e1f19?w=400&auto=format&fit=crop&q=80',
         preferredFoot: initialData.preferredFoot || 'Right',
@@ -51,8 +47,6 @@ export const PlayerModal = ({ isOpen, onClose, initialData = null }) => {
         name: '',
         position: 'FW',
         positionName: 'Forward',
-        rating: 85,
-        basePoints: 5,
         nationality: 'Spain',
         photo: 'https://images.unsplash.com/photo-1508341591423-4347099e1f19?w=400&auto=format&fit=crop&q=80',
         preferredFoot: 'Right',
@@ -120,7 +114,7 @@ export const PlayerModal = ({ isOpen, onClose, initialData = null }) => {
               {initialData ? 'Edit Footballer Details' : 'Add New Draft Player'}
             </h2>
             <p className="text-xs text-slate-400">
-              Configure player rating, auction base points, role, and attributes.
+              Configure player auction base points, role, and attributes.
             </p>
           </div>
         </div>
@@ -175,43 +169,17 @@ export const PlayerModal = ({ isOpen, onClose, initialData = null }) => {
             </div>
           </div>
 
-          {/* Rating & Base Points */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div>
-              <label className="text-xs font-bold text-slate-300 block mb-1">Overall Rating (OVR)</label>
-              <input
-                type="number"
-                min="60"
-                max="99"
-                value={formData.rating}
-                onChange={(e) => setFormData({ ...formData, rating: parseInt(e.target.value) || 80 })}
-                className="w-full px-3.5 py-2 rounded-xl bg-pitch-900 border border-pitch-700 text-amber-400 font-extrabold text-sm focus:outline-none focus:border-cyan-400"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-bold text-slate-300 block mb-1">Auction Base Points (Pts)</label>
-              <input
-                type="number"
-                min="1"
-                max="50"
-                value={formData.basePoints}
-                onChange={(e) => setFormData({ ...formData, basePoints: parseInt(e.target.value) || 5 })}
-                className="w-full px-3.5 py-2 rounded-xl bg-pitch-900 border border-pitch-700 text-emerald-400 font-extrabold text-sm focus:outline-none focus:border-cyan-400"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-bold text-slate-300 block mb-1">Age</label>
-              <input
-                type="number"
-                min="16"
-                max="45"
-                value={formData.age}
-                onChange={(e) => setFormData({ ...formData, age: parseInt(e.target.value) || 24 })}
-                className="w-full px-3.5 py-2 rounded-xl bg-pitch-900 border border-pitch-700 text-white text-sm focus:outline-none focus:border-cyan-400"
-              />
-            </div>
+          {/* Age */}
+          <div>
+            <label className="text-xs font-bold text-slate-300 block mb-1">Age</label>
+            <input
+              type="number"
+              min="16"
+              max="45"
+              value={formData.age}
+              onChange={(e) => setFormData({ ...formData, age: parseInt(e.target.value) || 24 })}
+              className="w-full px-3.5 py-2 rounded-xl bg-pitch-900 border border-pitch-700 text-white text-sm focus:outline-none focus:border-cyan-400"
+            />
           </div>
 
           {/* Photo URL */}

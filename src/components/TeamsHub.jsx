@@ -31,7 +31,22 @@ export const TeamsHub = () => {
               {/* Team Top Header */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <span className="text-3xl">{team.badge}</span>
+                  {team.image ? (
+                    <img
+                      src={team.image}
+                      alt={team.name}
+                      className="w-12 h-12 rounded-2xl object-cover border-2 border-pitch-600 shadow-md flex-shrink-0"
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                        if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex';
+                      }}
+                    />
+                  ) : null}
+                  <div
+                    className={`w-12 h-12 rounded-2xl bg-pitch-900 border-2 border-pitch-700 items-center justify-center text-2xl flex-shrink-0 ${team.image ? 'hidden' : 'flex'}`}
+                  >
+                    {team.badge || '🛡️'}
+                  </div>
                   <div>
                     <h3 className="text-lg font-extrabold text-white">{team.name}</h3>
                     <p className="text-xs text-slate-400">Captain: <strong className="text-slate-200">{team.captain}</strong></p>
@@ -78,12 +93,11 @@ export const TeamsHub = () => {
                       >
                         <div className="flex items-center gap-2">
                           <span className="text-slate-500 font-mono text-[10px]">#{idx + 1}</span>
-                          <span className="font-extrabold text-amber-400">{ply.rating}</span>
                           <span className="px-1 bg-pitch-800 rounded text-[10px] text-slate-300 font-bold">{ply.position}</span>
                           <span className="text-white font-bold truncate max-w-[140px]">{ply.name}</span>
                         </div>
                         <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold text-xs">
-                          {ply.pointsPaid || ply.basePoints} Pts
+                          {ply.pointsPaid ?? ply.soldPrice ?? 0} Pts
                         </span>
                       </div>
                     ))}

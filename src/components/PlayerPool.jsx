@@ -92,13 +92,11 @@ export const PlayerPool = ({ onStartAuction, onOpenAddPlayer }) => {
               />
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-black text-amber-400">{player.rating} OVR</span>
-                  <span className="px-1.5 py-0.2 rounded bg-pitch-900 text-[10px] font-bold text-slate-300">
-                    {player.position}
+                  <span className="px-1.5 py-0.5 rounded bg-pitch-900 text-[10px] font-bold text-slate-300">
+                    {player.position} • {player.positionName || player.position}
                   </span>
                 </div>
                 <h4 className="text-sm font-extrabold text-white truncate">{player.name}</h4>
-                <p className="text-xs text-slate-400">Base: {player.basePoints} Pts</p>
               </div>
             </div>
 
